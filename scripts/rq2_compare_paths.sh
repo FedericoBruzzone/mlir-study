@@ -16,7 +16,7 @@ OUT=results/rq2_paths.csv
 echo "size_N,path,tile_T,time_mean_s,time_stddev_s" > "$OUT"
 
 SIZES=(128 256 512 1024)
-DEFAULT_TILE=64   # used for path C
+DEFAULT_TILE=16   # T=16 is empirically optimal on M4 (see RQ1); T=64 causes cache aliasing
 WARMUP=3
 RUNS=10
 

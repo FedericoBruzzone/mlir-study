@@ -37,9 +37,9 @@ if os.path.exists(rq5_file):
 
 for N in [128, 256, 512, 1024]:
     ai = matmul_ai(N)
-    if (N, "mlir_affine_t16")  in rq5: DATA.append((f"MLIR tiled T=16\nN={N}",  ai, rq5[(N,"mlir_affine_t16")],  "o", "#2196F3"))
-    if (N, "mlir_vector_t16")  in rq5: DATA.append((f"MLIR+NEON T=16\nN={N}",   ai, rq5[(N,"mlir_vector_t16")],  "^", "#4CAF50"))
-    if (N, "accelerate_blas")  in rq5: DATA.append((f"Accelerate\nN={N}",        ai, rq5[(N,"accelerate_blas")],  "D", "#F44336"))
+    if (N, "mlir_affine_t16")  in rq5: DATA.append((f"MLIR tiled T=16\nN={N}",        ai, rq5[(N,"mlir_affine_t16")],  "o", "#2196F3"))
+    if (N, "mlir_vector_t16")  in rq5: DATA.append((f"MLIR explicit vec T=16\nN={N}", ai, rq5[(N,"mlir_vector_t16")],  "^", "#4CAF50"))
+    if (N, "accelerate_blas")  in rq5: DATA.append((f"Accelerate\nN={N}",             ai, rq5[(N,"accelerate_blas")],  "D", "#F44336"))
 
 # Load IREE clean if available
 # Arithmetic intensities (FLOPs / bytes_accessed):
@@ -129,7 +129,7 @@ for (name, ai, gf, mk, col) in DATA:
 # Axes
 ax.set_xlabel("Arithmetic Intensity (FLOPs / byte)", fontsize=11)
 ax.set_ylabel("Performance (GFLOP/s)", fontsize=11)
-ax.set_title("Roofline — Apple M4 Pro (single thread, FP32)\nMLIR naive vs NEON vs Accelerate", fontsize=11)
+ax.set_title("Roofline — Apple M4 Pro (single thread, FP32)\nMLIR tiled T=16 · MLIR explicit vec · IREE · Accelerate/AMX", fontsize=11)
 ax.set_xlim(2**-2, 2**9)
 ax.set_ylim(2**-8, 2**9)   # extended down to show softmax (~0.03 GFLOP/s ≈ 2^-5)
 ax.grid(True, which="both", alpha=0.2)
