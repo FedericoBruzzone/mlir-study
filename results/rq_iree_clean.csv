@@ -1,0 +1,5 @@
+model,time_mean_ms,time_stddev_ms,gflops
+linear_relu_512,0.035273,0.005693,14.8637
+linear_relu_1024,0.061320,0.008267,34.2003
+mha_bert_base,40.440061,3.046453,8.4010
+mobile_block_56x56,0.235770,0.025723,122.5830

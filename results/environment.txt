@@ -1,0 +1,22 @@
+=== Date ===
+Mon Jun  1 18:15:08 UTC 2026
+
+=== macOS ===
+ProductName:		macOS
+ProductVersion:		26.5
+BuildVersion:		25F71
+
+=== CPU ===
+Apple M4 Pro
+Physical cores : 12
+Logical  cores : 12
+L1 D-cache (B) : 65536
+L2   cache (B) : 4194304
+RAM        (B) : 25769803776
+
+=== MLIR / LLVM ===
+Homebrew LLVM version 22.1.2
+  Optimized build.
+
+=== hyperfine ===
+hyperfine 1.20.0
