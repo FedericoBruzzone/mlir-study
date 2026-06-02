@@ -169,7 +169,8 @@ mlir-study/
     └── roofline.png          # Quick-preview PNG
 ```
 
----
+<details>
+<summary>Click to expand</summary>
 
 ## Pipelines
 
@@ -318,3 +319,5 @@ The key takeaway: **runtime performance and static IPC are decoupled** for tile 
 
 **Why explicit vectorization (`affine-super-vectorize`) is slower than no vectorization:**  
 With `--O3 --mattr=apple-m4`, LLVM's backend auto-vectorizes the scalar affine loops. Explicit MLIR vector ops constrain the optimizer's freedom, producing worse code than letting LLVM decide.
+
+</details>
