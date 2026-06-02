@@ -56,6 +56,12 @@ rq-iree:
 	bash scripts/rq_iree.sh
 	.venv/bin/python3 scripts/bench_iree_runtime.py
 
+# sv-fix: benchmark affine-super-vectorize in_bounds fix (requires patched mlir-opt)
+sv-fix:
+	mkdir -p results
+	bash scripts/bench_sv_fix.sh
+	.venv/bin/python3 scripts/plot_sv_fix.py
+
 # Static IPC analysis via llvm-mca (requires source-built LLVM 23 in llvm-project/build)
 llvm-mca:
 	mkdir -p results

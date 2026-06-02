@@ -20,7 +20,7 @@ Empirical study of MLIR optimization passes on AArch64 CPU (Apple M4 Pro), assis
 | **RQ2** | Do Affine, SCF, and tiled lowering paths produce measurably different performance? | Affine ≡ SCF (< 1.5% difference at all sizes, statistically indistinguishable). T=16 tiling gives **7–8× speedup** over untiled at N ≥ 512 (N=1024: 877ms → 106ms). |
 | **RQ3** | What is the impact of `--affine-loop-fusion` on a matmul+relu+bias chain? | Fusion is measurably **slower** (+4.4%, ~4σ): overhead of fusion exceeds any benefit. Matmul O(N³) dominates; elementwise ops are < 0.2% of total time. |
 | **RQ4** | Do the same tiling patterns hold across conv2d, batch\_matmul, softmax? | Yes for compute-bound kernels (conv2d, batch\_matmul). Softmax (AI = 0.63 FLOPs/B, **above** the ridge point ~0.53) is theoretically compute-bound but achieves only 4.7% efficiency — the bottleneck is scalar `math.exp` (no SIMD) and sequential `scf.for` reduction loops, not memory bandwidth. Tiling is irrelevant. |
-| **RQ5** | How large is the gap between MLIR standard passes and Apple Accelerate (AMX)? | **~17× gap** at N=1024 (MLIR tiled T=16: 18.6 GFLOP/s vs Accelerate: 313 GFLOP/s). Explicit MLIR vectorization via `affine-super-vectorize` is **~2.4× slower** than relying on LLVM's auto-vectorizer. AMX is inaccessible from any MLIR standard pass. |
+| **RQ5** | How large is the gap between MLIR standard passes and Apple Accelerate (AMX)? | **~17× gap** at N=1024 (MLIR tiled T=16: 18.6 GFLOP/s vs Accelerate: 313 GFLOP/s). Explicit MLIR vectorization via `affine-super-vectorize` is **~2.4× slower** than LLVM's auto-vectorizer — this gap is **reduced to ~1.2×** with the [`in_bounds` fix](#affine-super-vectorize-in_bounds-fix). AMX is inaccessible from any MLIR standard pass. |
 
 **Three-tier result (matmul 1024², single thread FP32):**
 
@@ -28,6 +28,7 @@ Empirical study of MLIR optimization passes on AArch64 CPU (Apple M4 Pro), assis
 |--------|---------|---------------|
 | MLIR naive (affine, no tile) | ~2.4 | 1× |
 | MLIR tiled T=16 | **~18.6** | ~8× |
+| MLIR tiled + vectorized (sv-fix) | ~15.5 | ~6.5× |
 | IREE production MLIR | ~37 | ~15× |
 | Apple Accelerate (AMX) | ~313 | ~128× |
 
@@ -142,7 +143,9 @@ mlir-study/
 │   ├── to_scf.sh             # Path B: Linalg → SCF → LLVM
 │   ├── to_affine_tiled.sh    # Path C: Path A + --affine-loop-tile T,T,T
 │   ├── to_affine_fused.sh    # Path D: Path A + --affine-loop-fusion (RQ3)
-│   ├── to_vector.sh          # Path E: Path C + --affine-super-vectorize (NEON)
+│   ├── to_vector.sh          # Path E: Path C + --affine-super-vectorize (NEON, gather on k)
+│   ├── to_vector_interchange.sh  # Path F: Path C + --enable-loopinterchange + super-vectorize (correct loop order, but missing in_bounds → masked loads)
+│   ├── to_vector_interchange_inbounds.sh  # Path G: same as F but uses patched mlir-opt (sv-fix) for in_bounds=true on all transfers
 │   └── to_native.sh          # AoT: mlir-translate → clang → native binary
 │
 ├── scripts/
@@ -158,6 +161,9 @@ mlir-study/
 │   ├── rq5_vs_baseline.sh    # RQ5: MLIR vs Accelerate → results/rq5_vs_baseline.csv
 │   ├── rq_iree.sh            # IREE wall-clock benchmark (incl. module load) → results/rq_iree.csv
 │   ├── bench_iree_runtime.py # IREE per-call timing, no load overhead → results/rq_iree_clean.csv
+│   ├── bench_sv_fix.sh       # sv-fix patch: benchmark all 4 vectorization paths → results/sv_fix.csv
+│   ├── diagnose_sv_fix.sh    # sv-fix patch: MLIR IR + AArch64 assembly + benchmark diagnosis
+│   └── plot_sv_fix.py        # sv-fix patch: bar chart + slowdown plot → results/sv_fix*.png
 │   ├── llvm_mca_analysis.sh  # Static IPC/throughput via llvm-mca → results/llvm_mca.csv
 │   ├── roofline.sh           # Text roofline table → results/roofline.csv
 │   └── plot_roofline.py      # Roofline PDF/PNG → results/roofline.{pdf,png}
@@ -180,7 +186,10 @@ mlir-study/
     ├── llvm_mca_*.txt        # Full llvm-mca reports per variant
     ├── roofline.csv          # kernel, AI, measured_gflops, roofline_bound, efficiency_pct
     ├── roofline.pdf          # Central paper figure (vector + log-log axes)
-    └── roofline.png          # Quick-preview PNG
+    ├── roofline.png          # Quick-preview PNG
+    ├── sv_fix.csv            # affine-super-vectorize in_bounds fix benchmark (N=128..1024, 4 paths)
+    ├── sv_fix.png            # Bar chart: time per matmul across paths
+    └── sv_fix_slowdown.png   # Slowdown vs scalar baseline across paths
 ```
 
 <details>
@@ -200,7 +209,9 @@ bash pipelines/to_affine.sh kernels/matmul/smoke_test.mlir > lowered.mlir
 | `to_scf.sh` | `convert-linalg-to-loops` → LLVM | RQ2 Path B |
 | `to_affine_tiled.sh <input> <T>` | + `affine-loop-tile=tile-sizes=T,T,T` | RQ1, RQ2 Path C |
 | `to_affine_fused.sh` | + `affine-loop-fusion` | RQ3 fused variant |
-| `to_vector.sh <input> <T>` | + `affine-super-vectorize=virtual-vector-size=4` | RQ5 NEON path |
+| `to_vector.sh <input> <T>` | + `affine-super-vectorize=virtual-vector-size=4` | RQ5 NEON path (gather on k) |
+| `to_vector_interchange.sh <input> <T>` | + `enable-loopinterchange` + `affine-super-vectorize` | j-loop (correct order) but missing in_bounds |
+| `to_vector_interchange_inbounds.sh <input> <T>` | Same as above, forces `MLIR_SOURCE_BUILD=1` | Uses patched mlir-opt with in_bounds fix |
 | `to_native.sh <input> <binary>` | Full AoT: `mlir-translate --mlir-to-llvmir` → `clang -O0` | Standalone benchmarks |
 
 All pipelines end with the same LLVM lowering suffix:
@@ -314,6 +325,65 @@ Generated by `scripts/plot_roofline.py` using matplotlib. Reads all result CSVs 
 
 ---
 
+## affine-super-vectorize in_bounds Fix
+
+`affine-super-vectorize` emits `vector.transfer_read/write` without
+`{in_bounds = [true]}`, even when the memref dimension is static and
+divisible by the vector width. This causes `--convert-vector-to-llvm`
+to emit `llvm.masked.load` → AArch64 `tbz` + `ld1.s {v}[index]`
+(scatter) instead of plain `ld1 {v.4s}` (contiguous vector load).
+
+**Upstream MLIR bug** (discourse:
+[#90785](https://discourse.llvm.org/t/mlir-affine-affine-super-vectorize-does-not-set-in-bounds-on-transfer-ops-for-statically-divisible-shapes/90785)).
+
+### Fix (branch `sv-fix` on `llvm-project`)
+
+In `SuperVectorize.cpp`, after computing the permutation map, check for
+each vector dimension whether the corresponding memref dimension is
+static and divisible by the vector size. If so, set `in_bounds[i] = true`.
+Broadcast dimensions (constant expr in map) are always in-bounds.
+
+**Modified file:** `mlir/lib/Dialect/Affine/Transforms/SuperVectorize.cpp`
+(see `llvm-project` branch `sv-fix`).
+
+### Results (M4, N=512, T=16)
+
+| Path | Description | Time | vs scalar |
+|------|-------------|------|-----------|
+| A | affine\_tiled (scalar, LLVM decides) | 90.1 ms | 1.00× |
+| D | vec\_inbounds (j-loop + patched) | **108.9 ms** | **1.21×** |
+| C | vec\_interchange (j-loop, NO in\_bounds) | 309.9 ms | 3.44× |
+| B | vec (k-loop gather) | 309.6 ms | 3.44× |
+
+The fix **eliminates 44 masked branch instructions** (`tbz`) from the
+inner loop. The residual 1.21× gap vs scalar is not caused by the
+`in_bounds` attribute — it is a separate limitation of the
+memref→LLVM lowering which drops `nuw nsw inbounds` flags from the
+address arithmetic (`getelementptr`), preventing LLVM's SCEV from
+identifying the reduction pattern and accumulating C in a register.
+See [`PLAN-memref-to-llvm-nuw-nsw-inbounds.md`](PLAN-memref-to-llvm-nuw-nsw-inbounds.md).
+
+### Reproduce
+
+```bash
+# Quick diagnosis (IR + assembly + benchmark)
+bash scripts/diagnose_sv_fix.sh
+
+# Full benchmark across all sizes + plot
+bash scripts/bench_sv_fix.sh
+.venv/bin/python3 scripts/plot_sv_fix.py
+
+# To use the patched mlir-opt from source build:
+MLIR_SOURCE_BUILD=1 bash pipelines/to_vector_interchange_inbounds.sh kernel.mlir 16
+```
+
+### Visual
+
+![sv-fix bar chart](results/sv_fix.png)
+![sv-fix slowdown](results/sv_fix_slowdown.png)
+
+---
+
 ## llvm-mca Interpretation
 
 `results/llvm_mca.csv` reports static throughput analysis of the compiled assembly per variant (not per run — `llvm-mca` simulates 100 iterations of the loop body).
@@ -331,7 +401,7 @@ T=16 and T=64 generate **identical assembly with identical IPC** — yet at runt
 
 The key takeaway: **runtime performance and static IPC are decoupled** for tile sizes near cache-size boundaries. llvm-mca cannot predict this effect.
 
-**Why explicit vectorization (`affine-super-vectorize`) is slower than no vectorization:**  
-With `--O3 --mattr=apple-m4`, LLVM's backend auto-vectorizes the scalar affine loops. Explicit MLIR vector ops constrain the optimizer's freedom, producing worse code than letting LLVM decide.
+**Why explicit vectorization (`affine-super-vectorize`) was slower than no vectorization:**  
+Two bugs combined: (1) `affine-super-vectorize` vectorized the **wrong loop** (k instead of j), forcing a stride-N gather on B. (2) Even with `--enable-loopinterchange` fixing the loop order, `in_bounds` was missing → masked loads (tbz + ld1.s scatter). The `sv-fix` branch fixes (2) and reduces the gap from ~3.4× to ~1.2×. The remaining gap is not an MLIR bug but a memref→LLVM lowering limitation — see [`PLAN-memref-to-llvm-nuw-nsw-inbounds.md`](PLAN-memref-to-llvm-nuw-nsw-inbounds.md).
 
 </details>
