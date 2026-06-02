@@ -13,8 +13,8 @@ import matplotlib.patches as mpatches
 
 # ── Hardware constants (M4 Pro, single perf core) ─────────────────────────
 PEAK_SCALAR   = 9.0    # GFLOP/s  (2 FLOPs/cycle × 4.5 GHz, no SIMD)
-PEAK_NEON     = 36.0   # GFLOP/s  (8 f32 lanes × 2 FLOPs/cycle × 4.5 GHz)
-PEAK_AMX      = 182.0  # GFLOP/s  (Accelerate BLAS measured at N=1024 — proxy for AMX peak)
+PEAK_NEON     = 36.0   # GFLOP/s  (4 f32 lanes × 2 FLOPs/lane (FMA) × 4.5 GHz)
+PEAK_AMX      = 182.0  # GFLOP/s  fallback; overwritten below from rq5_vs_baseline.csv
 MEM_BW        = 68.0   # GB/s
 
 RESULTS = os.path.join(os.path.dirname(__file__), "..", "results")
@@ -34,6 +34,10 @@ if os.path.exists(rq5_file):
             key = (int(row["size_N"]), row["variant"])
             if row["gflops"] not in ("N/A", ""):
                 rq5[key] = float(row["gflops"])
+
+# Derive PEAK_AMX from the measured Accelerate N=1024 result (proxy for AMX ceiling)
+if (1024, "accelerate_blas") in rq5:
+    PEAK_AMX = rq5[(1024, "accelerate_blas")]
 
 for N in [128, 256, 512, 1024]:
     ai = matmul_ai(N)

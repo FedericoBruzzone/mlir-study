@@ -3,7 +3,8 @@
 //
 // Build:  clang -O3 -march=native -DSIZE=512 blas_matmul.c -o blas_matmul_512 \
 //               -framework Accelerate
-// Run:    hyperfine --warmup 5 --runs 20 ./blas_matmul_512
+// Run:    ./blas_matmul_512 [NITER]   (default NITER=1)
+//   NITER>1 amortises process-startup overhead: report hyperfine wall-time / NITER.
 
 #include <Accelerate/Accelerate.h>
 #include <math.h>
@@ -21,7 +22,8 @@ static void fill_random(float *buf, int n) {
         buf[i] = (float)rand() / (float)RAND_MAX - 0.5f;
 }
 
-int main(void) {
+int main(int argc, char *argv[]) {
+    int niter = argc > 1 ? atoi(argv[1]) : 1;
     srand(42);
 
     float *A = aligned_alloc(64, (size_t)SIZE * SIZE * sizeof(float));
@@ -33,12 +35,14 @@ int main(void) {
     fill_random(B, SIZE * SIZE);
     memset(C, 0, (size_t)SIZE * SIZE * sizeof(float));
 
-    cblas_sgemm(CblasRowMajor,
-                CblasNoTrans, CblasNoTrans,
-                SIZE, SIZE, SIZE,
-                1.0f, A, SIZE,
-                      B, SIZE,
-                0.0f, C, SIZE);
+    for (int iter = 0; iter < niter; iter++) {
+        cblas_sgemm(CblasRowMajor,
+                    CblasNoTrans, CblasNoTrans,
+                    SIZE, SIZE, SIZE,
+                    1.0f, A, SIZE,
+                          B, SIZE,
+                    0.0f, C, SIZE);
+    }
 
     // Anti-optimisation guard: print one value so the compiler cannot elide the call
     printf("%.6f\n", (double)C[0]);

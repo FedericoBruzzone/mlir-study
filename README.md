@@ -2,6 +2,8 @@
 
 Empirical study of MLIR optimization passes on AArch64 CPU (Apple M4 Pro), assisted by `Claude:Sonnet4.7`.
 
+> Results and discussion: **[federicobruzzone.github.io/posts/mlir-study.html](https://federicobruzzone.github.io/posts/mlir-study.html)**
+
 ## Roofline
 
 ![Roofline — Apple M4 Pro](results/roofline.png)
@@ -17,7 +19,7 @@ Empirical study of MLIR optimization passes on AArch64 CPU (Apple M4 Pro), assis
 | **RQ1** | How does tile size affect performance across problem sizes on AArch64? | T=16 is **4–6× faster than T=64** (up to 9× vs worst tile at N=1024). llvm-mca shows same IPC across tile sizes — the speedup is purely from cache behavior, not instruction quality. T=64 triggers catastrophic cache aliasing with `--mattr=apple-m4` at `-O3`. |
 | **RQ2** | Do Affine, SCF, and tiled lowering paths produce measurably different performance? | Affine ≡ SCF (< 0.1% difference at all sizes). T=16 tiling gives **7–8× speedup** over untiled at N ≥ 512 (N=1024: 863ms → 106ms). |
 | **RQ3** | What is the impact of `--affine-loop-fusion` on a matmul+relu+bias chain? | No measurable effect (Δ < 1σ): matmul O(N³) dominates; elementwise ops are < 0.2% of total time. |
-| **RQ4** | Do the same tiling patterns hold across conv2d, batch\_matmul, softmax? | Yes for compute-bound kernels (conv2d, batch\_matmul). Softmax is memory-bound (AI = 0.63 FLOPs/B < ridge point) and does not benefit from tiling. |
+| **RQ4** | Do the same tiling patterns hold across conv2d, batch\_matmul, softmax? | Yes for compute-bound kernels (conv2d, batch\_matmul). Softmax (AI = 0.63 FLOPs/B, **above** the ridge point ~0.53) is theoretically compute-bound but achieves only 4.6% efficiency — the bottleneck is scalar `math.exp` (no SIMD) and sequential `scf.for` reduction loops, not memory bandwidth. Tiling is irrelevant. |
 | **RQ5** | How large is the gap between MLIR standard passes and Apple Accelerate (AMX)? | **8× gap** at N=1024 (MLIR tiled T=16: 20 GFLOP/s vs Accelerate: 169 GFLOP/s). Explicit MLIR vectorization via `affine-super-vectorize` is **2.5× slower** than relying on LLVM's auto-vectorizer. AMX is inaccessible from any MLIR standard pass. |
 
 **Three-tier result (matmul 1024², single thread FP32):**
@@ -50,23 +52,35 @@ Apple M4 Pro — recorded in `results/environment.txt`.
 
 ## Measurement Methodology
 
-All benchmarks compile MLIR to **native AoT binaries** via `scripts/_compile_native.sh`
+### RQ1–RQ5 (hand-written MLIR kernels + Accelerate baseline)
+
+Kernels compile to **native AoT binaries** via `scripts/_compile_native.sh`
 (`mlir-translate --mlir-to-llvmir` → Homebrew LLVM 22 `clang -O3 -march=native`).
 `mlir-runner` (JIT path) is **not used** for any timing — see `scripts/_run_mlir.sh` for why it was abandoned.
 
-Each `@main()` runs the kernel **NITER times** inside an `scf.for` loop.
+Each binary runs the kernel **NITER times** in a loop (`scf.for` in MLIR `@main()`; a C `for` loop in the Accelerate baseline).
 `hyperfine` measures wall-time of the entire process; scripts divide by NITER to recover per-call latency.
-NITER is chosen so that process-startup overhead (~50ms fixed cost on macOS) is < 10% of total:
+NITER is chosen so that process-startup overhead (~50ms fixed cost on macOS) is kept small:
 
-| Problem size | NITER | Approx. kernel time | Overhead fraction |
+| Problem size | NITER | Approx. total wall-time | Startup fraction |
 |---|---|---|---|
-| N=128 | 100 | ~200ms total | < 25% |
-| N=256 | 20 | ~200ms total | < 20% |
-| N=512 | 5 | ~250ms total | < 15% |
-| N=1024 | 2 | ~1.5s total | < 5% |
+| N=128 | 100 | ~200ms | < 25% |
+| N=256 | 20  | ~200ms | < 20% |
+| N=512 | 5   | ~250ms | < 15% |
+| N=1024 | 2  | ~1.5s  | < 5%  |
 
 `_compile_native.sh` uses the **same LLVM toolchain** as `mlir-translate` (Homebrew LLVM 22)
-to avoid IR-attribute mismatches when Xcode's bundled clang encounters LLVM 22 intrinsic attributes.
+to avoid IR-attribute mismatches with Xcode's bundled clang.
+
+The **Accelerate/AMX ceiling** in the roofline plot is read dynamically from `rq5_vs_baseline.csv`
+(measured GFLOP/s of `cblas_sgemm` at N=1024) — not hardcoded.
+
+### RQ-IREE (real PyTorch models)
+
+Models compile to **IREE vmfb binaries** via `iree-compile` (AoT).
+Timing uses `iree-benchmark-module` which runs the model **in-process** for 200 repetitions —
+no per-invocation process startup overhead.
+`rq_iree_clean.csv` (used by the roofline plot) measures the same way via the Python IREE runtime.
 
 ---
 
@@ -219,22 +233,22 @@ All pipelines end with the same LLVM lowering suffix:
 | `rq3_fusion.sh` | `make rq3` | `rq3_fusion.csv` | variant, time_mean_s, time_stddev_s |
 | `rq4_workloads.sh` | `make rq4` | `rq4_workloads.csv` | kernel, variant, time_mean_s, time_stddev_s |
 | `rq5_vs_baseline.sh` | `make rq5` | `rq5_vs_baseline.csv` | size_N, variant, time_mean_s, time_stddev_s, gflops |
-| `rq_iree.sh` + `bench_iree_runtime.py` | `make rq-iree` | `rq_iree.csv` + `rq_iree_clean.csv` | wall-clock (incl. load) + per-call (no load) |
+| `rq_iree.sh` + `bench_iree_runtime.py` | `make rq-iree` | `rq_iree.csv` + `rq_iree_clean.csv` | per-call via `iree-benchmark-module` (in-process) + per-call via Python runtime |
 
 ### Analysis
 
 | Script | Command | Output | Notes |
 |--------|---------|--------|-------|
-| `bench_iree_runtime.py` | `.venv/bin/python3 scripts/bench_iree_runtime.py` | `rq_iree_clean.csv` | Per-call timing without 700× module-load overhead. Requires vmfb files in `/tmp/mlir_iree/` — run `make rq-iree` first |
+| `bench_iree_runtime.py` | `.venv/bin/python3 scripts/bench_iree_runtime.py` | `rq_iree_clean.csv` | Per-call timing via Python IREE runtime (in-process, no startup overhead). Requires vmfb files in `/tmp/mlir_iree/` — run `make rq-iree` first |
 | `llvm_mca_analysis.sh` | `make llvm-mca` | `llvm_mca.csv` + `llvm_mca_*.txt` | Static IPC via llvm-mca (LLVM 23 from source build). Uses Homebrew llc + source-built llvm-mca |
 | `roofline.sh` | `make roofline` | `roofline.csv` | Text table: AI, GFLOP/s, efficiency % |
 | `plot_roofline.py` | `make roofline` | `roofline.{pdf,png}` | Reads `rq5_vs_baseline.csv`, `rq4_workloads.csv`, `rq_iree_clean.csv`. **Requires `rq_iree_clean.csv` to show IREE points** |
 
-### Known Limitation — IREE vmfb files
+### Note — IREE vmfb files
 
-`bench_iree_runtime.py` reads compiled model binaries from `/tmp/mlir_iree/*.vmfb`.  
+Both `rq_iree.sh` and `bench_iree_runtime.py` read compiled model binaries from `/tmp/mlir_iree/*.vmfb`.  
 These live in `/tmp/` and are **not persisted** across reboots.  
-`make rq-iree` always recompiles them and immediately calls `bench_iree_runtime.py`, so running:
+`make rq-iree` always recompiles them before benchmarking, so running:
 
 ```bash
 make rq-iree && make roofline
@@ -293,7 +307,7 @@ Generated by `scripts/plot_roofline.py` using matplotlib. Reads all result CSVs 
 - MLIR explicit vec T=16 (affine-super-vectorize, same sizes) — from `rq5_vs_baseline.csv`
 - Accelerate BLAS (same sizes) — from `rq5_vs_baseline.csv`
 - IREE models (linear, MHA, mobile) — from `rq_iree_clean.csv`
-- Softmax 512×512 — from `rq4_workloads.csv` *(memory-bound, below ridge point)*
+- Softmax 512×512 — from `rq4_workloads.csv` *(AI=0.63, above ridge point ~0.53 — compute-bound but 4.6% efficiency due to scalar exp)*
 - Conv2d 56×56 — from `rq4_workloads.csv`
 
 > **N=128 points** use NITER=100 iterations per binary invocation; reported time is wall-time ÷ 100, so process-startup overhead is amortised to < 5%.

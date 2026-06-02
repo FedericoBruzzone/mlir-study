@@ -5,7 +5,7 @@
 # Requires: venv with iree-turbine and torch (see venv/requirements.txt)
 # Output: results/rq_iree.csv
 #
-# CSV columns: model, time_mean_ms, time_stddev_ms, gflops_est
+# CSV columns: model, time_mean_s, time_stddev_s, gflops_est
 # Run from project root: bash scripts/rq_iree.sh
 
 set -euo pipefail
@@ -23,14 +23,14 @@ fi
 mkdir -p results /tmp/mlir_iree
 
 OUT=results/rq_iree.csv
-echo "model,time_mean_ms,time_stddev_ms,gflops_est" > "$OUT"
+echo "model,time_mean_s,time_stddev_s,gflops_est" > "$OUT"
 
 # IREE target for Apple Silicon (AArch64, NEON-enabled)
 IREE_FLAGS="--iree-hal-target-backends=llvm-cpu \
   --iree-llvmcpu-target-cpu-features=+neon"
 
-IREE_RUN="$VENV/bin/iree-run-module"
-HYPERFINE="$(command -v hyperfine)"
+WARMUP=20
+RUNS=200
 
 _bench_iree() {
   local name="$1" mlir="$2" flops="$3" input="$4"
@@ -43,15 +43,26 @@ _bench_iree() {
   fi
 
   echo "  Benchmarking $name..."
-  HFCSV=/tmp/mlir_iree/hf_${name}.csv
-  "$HYPERFINE" \
-    --warmup 5 --runs 20 \
-    --export-csv "$HFCSV" \
-    "$IREE_RUN --device=local-task --module=$VMF --function=main --input=$input" \
-    2>/dev/null
+  BENCH_CSV=/tmp/mlir_iree/bench_${name}.csv
+  # iree-benchmark-module runs in-process — no per-invocation startup overhead.
+  # real_time in the CSV is per-call latency in ms.
+  "$IREE_BENCH" \
+    --device=local-task \
+    --module="$VMF" \
+    --function=main \
+    --input="$input" \
+    --benchmark_min_warmup_time="$WARMUP" \
+    --benchmark_repetitions="$RUNS" \
+    --benchmark_out_format=csv \
+    --benchmark_out="$BENCH_CSV" \
+    > /dev/null 2>&1
 
-  MEAN=$(awk   -F',' 'NR==2{print $2}' "$HFCSV")
-  STDDEV=$(awk -F',' 'NR==2{print $3}' "$HFCSV")
+  # CSV row format: "name",iterations,real_time,cpu_time,time_unit,...
+  # Aggregate rows end in _mean / _stddev; real_time is in ms.
+  MEAN_MS=$(awk  -F',' '/_mean/{  gsub(/"/, "", $1); print $3; exit}' "$BENCH_CSV")
+  STDDEV_MS=$(awk -F',' '/_stddev/{gsub(/"/, "", $1); print $3; exit}' "$BENCH_CSV")
+  MEAN=$(awk   "BEGIN{printf \"%.10f\", $MEAN_MS   / 1000}")
+  STDDEV=$(awk "BEGIN{printf \"%.10f\", $STDDEV_MS / 1000}")
   GF=$(awk "BEGIN{printf \"%.2f\", $flops / ($MEAN * 1e9)}")
 
   echo "$name,$MEAN,$STDDEV,$GF" | tee -a "$OUT"

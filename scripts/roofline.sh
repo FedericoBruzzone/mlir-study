@@ -3,8 +3,8 @@
 # Outputs results/roofline.csv and prints a text summary.
 #
 # Hardware model (Apple M4 Pro, single thread):
-#   Peak FP32 scalar:  ~9 GFLOP/s   (2 FLOPs/cycle × 4.5 GHz)
-#   Peak FP32 NEON:    ~36 GFLOP/s  (8 lanes × 2 FLOPs/cycle × 4.5 GHz)
+#   Peak FP32 scalar:  ~9 GFLOP/s   (2 FLOPs/cycle × 4.5 GHz, no SIMD)
+#   Peak FP32 NEON:    ~36 GFLOP/s  (4 f32 lanes × 2 FLOPs/lane (FMA) × 4.5 GHz)
 #   Memory bandwidth:  ~68 GB/s     (sysctl hw.memsize / empirical)
 #   Ridge point (NEON):  36e9/68e9 ≈ 0.53 FLOPs/byte
 #

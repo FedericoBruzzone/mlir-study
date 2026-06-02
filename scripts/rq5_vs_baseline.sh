@@ -72,7 +72,7 @@ for N in "${SIZES[@]}"; do
   # ── Apple Accelerate baseline ─────────────────────────────────────────────
   BLAS_BIN=baselines/blas_matmul_${N}
   if [[ -x "$BLAS_BIN" ]]; then
-    _bench "accelerate_blas" "./$BLAS_BIN" "$N" 1
+    _bench "accelerate_blas" "./$BLAS_BIN $NITER" "$N" "$NITER"
   else
     echo "$N,accelerate_blas,NOT_BUILT,N/A,N/A" | tee -a "$OUT"
   fi
