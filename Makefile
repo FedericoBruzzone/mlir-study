@@ -1,9 +1,14 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: all verify collect-env baselines models rq1 rq2 rq3 rq4 rq5 rq-iree roofline llvm-mca clean
+.PHONY: all all-source verify collect-env baselines models rq1 rq2 rq3 rq4 rq5 rq-iree roofline llvm-mca clean
 
 # Full study: env → verify → baselines → all RQs → analysis → roofline
 all: collect-env verify baselines models rq1 rq2 rq3 rq4 rq5 rq-iree llvm-mca roofline
+
+# Same as `all` but forces use of the source-built MLIR (sv-fix branch or custom llvm-project/build).
+# Requires a functional llvm-project/build with mlir-opt, mlir-translate, etc.
+all-source:
+	MLIR_SOURCE_BUILD=1 $(MAKE) all
 
 # Record hardware + tool versions (run once before experiments)
 collect-env:
