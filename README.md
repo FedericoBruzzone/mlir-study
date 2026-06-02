@@ -14,18 +14,18 @@ Empirical study of MLIR optimization passes on AArch64 CPU (Apple M4 Pro), assis
 
 | ID | Question | Key Finding |
 |----|----------|-------------|
-| **RQ1** | How does tile size affect performance across problem sizes on AArch64? | T=16 is 6–22× faster than T=64. llvm-mca shows same IPC across tile sizes — the speedup is purely from cache behavior, not instruction quality. T=64 triggers catastrophic cache aliasing with `--mattr=apple-m4` at `-O3`. |
-| **RQ2** | Do Affine, SCF, and tiled lowering paths produce measurably different performance? | Affine ≡ SCF (< 3% difference at all sizes). T=16 tiling gives **2–6× speedup** over untiled at N ≥ 512 (N=1024: 890ms → 141ms). |
+| **RQ1** | How does tile size affect performance across problem sizes on AArch64? | T=16 is **4–6× faster than T=64** (up to 9× vs worst tile at N=1024). llvm-mca shows same IPC across tile sizes — the speedup is purely from cache behavior, not instruction quality. T=64 triggers catastrophic cache aliasing with `--mattr=apple-m4` at `-O3`. |
+| **RQ2** | Do Affine, SCF, and tiled lowering paths produce measurably different performance? | Affine ≡ SCF (< 0.1% difference at all sizes). T=16 tiling gives **7–8× speedup** over untiled at N ≥ 512 (N=1024: 863ms → 106ms). |
 | **RQ3** | What is the impact of `--affine-loop-fusion` on a matmul+relu+bias chain? | No measurable effect (Δ < 1σ): matmul O(N³) dominates; elementwise ops are < 0.2% of total time. |
 | **RQ4** | Do the same tiling patterns hold across conv2d, batch\_matmul, softmax? | Yes for compute-bound kernels (conv2d, batch\_matmul). Softmax is memory-bound (AI = 0.63 FLOPs/B < ridge point) and does not benefit from tiling. |
-| **RQ5** | How large is the gap between MLIR standard passes and Apple Accelerate (AMX)? | **11× gap** at N=1024 (MLIR tiled T=16: 15 GFLOP/s vs Accelerate: 169 GFLOP/s). Explicit MLIR vectorization via `affine-super-vectorize` is **2× slower** than relying on LLVM's auto-vectorizer. AMX is inaccessible from any MLIR standard pass. |
+| **RQ5** | How large is the gap between MLIR standard passes and Apple Accelerate (AMX)? | **8× gap** at N=1024 (MLIR tiled T=16: 20 GFLOP/s vs Accelerate: 169 GFLOP/s). Explicit MLIR vectorization via `affine-super-vectorize` is **2.5× slower** than relying on LLVM's auto-vectorizer. AMX is inaccessible from any MLIR standard pass. |
 
 **Three-tier result (matmul 1024², single thread FP32):**
 
 | System | GFLOP/s | vs MLIR naive |
 |--------|---------|---------------|
 | MLIR naive (affine, no tile) | ~2.4 | 1× |
-| MLIR tiled T=16 | **~15** | 6× |
+| MLIR tiled T=16 | **~20** | 8× |
 | IREE production MLIR | ~37 | 15× |
 | Apple Accelerate (AMX) | ~169 | 70× |
 
