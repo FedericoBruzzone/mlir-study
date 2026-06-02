@@ -2,7 +2,7 @@
 // A[i,k]=1, B[k,j]=1 → C[i,j]=4 (inner dim=4).
 // Expected output: 4.000000e+00
 
-func.func @main() {
+func.func @main() -> i32 {
   %f1 = arith.constant 1.0 : f32
   %f0 = arith.constant 0.0 : f32
   %c0 = arith.constant 0 : index
@@ -24,5 +24,6 @@ func.func @main() {
   memref.dealloc %A : memref<4x4xf32>
   memref.dealloc %B : memref<4x4xf32>
   memref.dealloc %C : memref<4x4xf32>
-  return
+  %c0_i32 = arith.constant 0 : i32
+  return %c0_i32 : i32
 }

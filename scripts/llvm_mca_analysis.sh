@@ -26,7 +26,7 @@ _mca_variant() {
   local label="$1" N="$2" passes="$3"
 
   KERNEL=/tmp/mlir_mca/matmul_${N}.mlir
-  sed "s/SIZE/$N/g" kernels/matmul/bench.mlir.tpl > "$KERNEL"
+  sed -e "s/SIZE/$N/g" -e "s/NITER/1/g" kernels/matmul/bench.mlir.tpl > "$KERNEL"
 
   # Lower → LLVM IR → assembly
   ASM=/tmp/mlir_mca/${label}_${N}.s

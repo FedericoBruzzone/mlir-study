@@ -18,18 +18,22 @@ echo "variant,time_mean_s,time_stddev_s" > "$OUT"
 WARMUP=3
 RUNS=10
 
+NITER=5  # matches hardcoded value in kernels/elementwise/chain.mlir
+
 _bench() {
   local label="$1" lowered="$2"
+  local binary=/tmp/mlir_rq3/bin_${label}
   local hfcsv=/tmp/mlir_rq3/hf_${label}.csv
 
+  bash scripts/_compile_native.sh "$lowered" "$binary"
   "$HYPERFINE" \
     --warmup "$WARMUP" --runs "$RUNS" \
     --export-csv "$hfcsv" \
-    "bash scripts/_run_mlir.sh $lowered" \
+    "$binary" \
     2>/dev/null
 
-  MEAN=$(awk -F',' 'NR==2{print $2}' "$hfcsv")
-  STDDEV=$(awk -F',' 'NR==2{print $3}' "$hfcsv")
+  MEAN=$(awk   -F',' -v n="$NITER" 'NR==2{printf "%.10f", $2/n}' "$hfcsv")
+  STDDEV=$(awk -F',' -v n="$NITER" 'NR==2{printf "%.10f", $3/n}' "$hfcsv")
   echo "$label,$MEAN,$STDDEV" | tee -a "$OUT"
 }
 

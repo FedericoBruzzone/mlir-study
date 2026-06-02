@@ -15,10 +15,12 @@ func.func @conv2d(
   return
 }
 
-func.func @main() {
-  %f1 = arith.constant 1.0 : f32
-  %f0 = arith.constant 0.0 : f32
-  %c0 = arith.constant 0 : index
+func.func @main() -> i32 {
+  %f1     = arith.constant 1.0  : f32
+  %f0     = arith.constant 0.0  : f32
+  %c0     = arith.constant 0    : index
+  %c1     = arith.constant 1    : index
+  %niters = arith.constant NITER : index
 
   %input  = memref.alloc() : memref<1xSIZExSIZEx64xf32>
   %filter = memref.alloc() : memref<3x3x64x64xf32>
@@ -26,10 +28,12 @@ func.func @main() {
 
   linalg.fill ins(%f1 : f32) outs(%input  : memref<1xSIZExSIZEx64xf32>)
   linalg.fill ins(%f1 : f32) outs(%filter : memref<3x3x64x64xf32>)
-  linalg.fill ins(%f0 : f32) outs(%output : memref<1xOSIZExOSIZEx64xf32>)
 
-  call @conv2d(%input, %filter, %output)
-    : (memref<1xSIZExSIZEx64xf32>, memref<3x3x64x64xf32>, memref<1xOSIZExOSIZEx64xf32>) -> ()
+  scf.for %ii = %c0 to %niters step %c1 {
+    linalg.fill ins(%f0 : f32) outs(%output : memref<1xOSIZExOSIZEx64xf32>)
+    func.call @conv2d(%input, %filter, %output)
+      : (memref<1xSIZExSIZEx64xf32>, memref<3x3x64x64xf32>, memref<1xOSIZExOSIZEx64xf32>) -> ()
+  }
 
   // Expected: 64 * 3 * 3 = 576
   %val = memref.load %output[%c0, %c0, %c0, %c0] : memref<1xOSIZExOSIZEx64xf32>
@@ -38,5 +42,6 @@ func.func @main() {
   memref.dealloc %input  : memref<1xSIZExSIZEx64xf32>
   memref.dealloc %filter : memref<3x3x64x64xf32>
   memref.dealloc %output : memref<1xOSIZExOSIZEx64xf32>
-  return
+  %c0_i32 = arith.constant 0 : i32
+  return %c0_i32 : i32
 }

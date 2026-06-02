@@ -43,10 +43,12 @@ func.func @chain(%A:    memref<512x512xf32>,
   return
 }
 
-func.func @main() {
-  %f1  = arith.constant 1.0 : f32
-  %f0  = arith.constant 0.0 : f32
-  %c0  = arith.constant 0 : index
+func.func @main() -> i32 {
+  %f1     = arith.constant 1.0 : f32
+  %f0     = arith.constant 0.0 : f32
+  %c0     = arith.constant 0   : index
+  %c1     = arith.constant 1   : index
+  %niters = arith.constant 5   : index
 
   %A    = memref.alloc() : memref<512x512xf32>
   %B    = memref.alloc() : memref<512x512xf32>
@@ -57,12 +59,14 @@ func.func @main() {
   linalg.fill ins(%f1 : f32) outs(%A    : memref<512x512xf32>)
   linalg.fill ins(%f1 : f32) outs(%B    : memref<512x512xf32>)
   linalg.fill ins(%f1 : f32) outs(%bias : memref<512xf32>)
-  linalg.fill ins(%f0 : f32) outs(%C    : memref<512x512xf32>)
-  linalg.fill ins(%f0 : f32) outs(%out  : memref<512x512xf32>)
 
-  call @chain(%A, %B, %bias, %C, %out)
-    : (memref<512x512xf32>, memref<512x512xf32>, memref<512xf32>,
-       memref<512x512xf32>, memref<512x512xf32>) -> ()
+  scf.for %ii = %c0 to %niters step %c1 {
+    linalg.fill ins(%f0 : f32) outs(%C   : memref<512x512xf32>)
+    linalg.fill ins(%f0 : f32) outs(%out : memref<512x512xf32>)
+    func.call @chain(%A, %B, %bias, %C, %out)
+      : (memref<512x512xf32>, memref<512x512xf32>, memref<512xf32>,
+         memref<512x512xf32>, memref<512x512xf32>) -> ()
+  }
 
   // out[0][0] = max(512.0, 0) + 1.0 = 513.0
   %val = memref.load %out[%c0, %c0] : memref<512x512xf32>
@@ -73,5 +77,6 @@ func.func @main() {
   memref.dealloc %bias : memref<512xf32>
   memref.dealloc %C    : memref<512x512xf32>
   memref.dealloc %out  : memref<512x512xf32>
-  return
+  %c0_i32 = arith.constant 0 : i32
+  return %c0_i32 : i32
 }

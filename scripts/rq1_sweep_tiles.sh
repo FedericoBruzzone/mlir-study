@@ -21,25 +21,36 @@ WARMUP=3
 RUNS=10
 
 for N in "${SIZES[@]}"; do
+  # Iterations to amortize process-startup overhead (~50 ms fixed cost).
+  case "$N" in
+    128)  NITER=100 ;;
+    256)  NITER=20  ;;
+    512)  NITER=5   ;;
+    1024) NITER=2   ;;
+    *)    NITER=5   ;;
+  esac
+
   KERNEL=/tmp/mlir_rq1/matmul_${N}.mlir
-  sed "s/SIZE/$N/g" kernels/matmul/bench.mlir.tpl > "$KERNEL"
+  sed -e "s/SIZE/$N/g" -e "s/NITER/$NITER/g" kernels/matmul/bench.mlir.tpl > "$KERNEL"
 
   for T in "${TILES[@]}"; do
     [ "$T" -ge "$N" ] && continue
 
     LOWERED=/tmp/mlir_rq1/lowered_${N}_tile${T}.mlir
+    BINARY=/tmp/mlir_rq1/bin_${N}_tile${T}
     bash pipelines/to_affine_tiled.sh "$KERNEL" "$T" > "$LOWERED"
+    bash scripts/_compile_native.sh "$LOWERED" "$BINARY"
 
     HFCSV=/tmp/mlir_rq1/hf_${N}_tile${T}.csv
     "$HYPERFINE" \
       --warmup "$WARMUP" --runs "$RUNS" \
       --export-csv "$HFCSV" \
-      "bash scripts/_run_mlir.sh $LOWERED" \
+      "$BINARY" \
       2>/dev/null
 
-    # CSV row 2: command,mean,stddev,...  — extract columns 2 and 3
-    MEAN=$(awk -F',' 'NR==2{print $2}' "$HFCSV")
-    STDDEV=$(awk -F',' 'NR==2{print $3}' "$HFCSV")
+    # Divide wall-time by NITER to get per-kernel-call latency.
+    MEAN=$(awk   -F',' -v n="$NITER" 'NR==2{printf "%.10f", $2/n}' "$HFCSV")
+    STDDEV=$(awk -F',' -v n="$NITER" 'NR==2{printf "%.10f", $3/n}' "$HFCSV")
 
     echo "$N,$T,$MEAN,$STDDEV" | tee -a "$OUT"
   done

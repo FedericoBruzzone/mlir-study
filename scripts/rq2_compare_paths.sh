@@ -21,36 +21,46 @@ WARMUP=3
 RUNS=10
 
 _bench() {
-  local label="$1" lowered="$2" size="$3" tile="$4"
+  local label="$1" lowered="$2" size="$3" tile="$4" niter="$5"
+  local binary=/tmp/mlir_rq2/bin_${size}_${label}
   local hfcsv=/tmp/mlir_rq2/hf_${size}_${label}.csv
 
+  bash scripts/_compile_native.sh "$lowered" "$binary"
   "$HYPERFINE" \
     --warmup "$WARMUP" --runs "$RUNS" \
     --export-csv "$hfcsv" \
-    "bash scripts/_run_mlir.sh $lowered" \
+    "$binary" \
     2>/dev/null
 
-  MEAN=$(awk -F',' 'NR==2{print $2}' "$hfcsv")
-  STDDEV=$(awk -F',' 'NR==2{print $3}' "$hfcsv")
+  MEAN=$(awk   -F',' -v n="$niter" 'NR==2{printf "%.10f", $2/n}' "$hfcsv")
+  STDDEV=$(awk -F',' -v n="$niter" 'NR==2{printf "%.10f", $3/n}' "$hfcsv")
   echo "$size,$label,$tile,$MEAN,$STDDEV" | tee -a "$OUT"
 }
 
 for N in "${SIZES[@]}"; do
+  case "$N" in
+    128)  NITER=100 ;;
+    256)  NITER=20  ;;
+    512)  NITER=5   ;;
+    1024) NITER=2   ;;
+    *)    NITER=5   ;;
+  esac
+
   KERNEL=/tmp/mlir_rq2/matmul_${N}.mlir
-  sed "s/SIZE/$N/g" kernels/matmul/bench.mlir.tpl > "$KERNEL"
+  sed -e "s/SIZE/$N/g" -e "s/NITER/$NITER/g" kernels/matmul/bench.mlir.tpl > "$KERNEL"
 
   # Path A — affine (no tiling)
   bash pipelines/to_affine.sh "$KERNEL" > /tmp/mlir_rq2/affine_${N}.mlir
-  _bench "affine" /tmp/mlir_rq2/affine_${N}.mlir "$N" "none"
+  _bench "affine" /tmp/mlir_rq2/affine_${N}.mlir "$N" "none" "$NITER"
 
   # Path B — scf (no tiling)
   bash pipelines/to_scf.sh "$KERNEL" > /tmp/mlir_rq2/scf_${N}.mlir
-  _bench "scf" /tmp/mlir_rq2/scf_${N}.mlir "$N" "none"
+  _bench "scf" /tmp/mlir_rq2/scf_${N}.mlir "$N" "none" "$NITER"
 
   # Path C — affine + tiled (DEFAULT_TILE)
   bash pipelines/to_affine_tiled.sh "$KERNEL" "$DEFAULT_TILE" \
     > /tmp/mlir_rq2/affine_tiled_${N}.mlir
-  _bench "affine_tiled" /tmp/mlir_rq2/affine_tiled_${N}.mlir "$N" "$DEFAULT_TILE"
+  _bench "affine_tiled" /tmp/mlir_rq2/affine_tiled_${N}.mlir "$N" "$DEFAULT_TILE" "$NITER"
 done
 
 echo ""

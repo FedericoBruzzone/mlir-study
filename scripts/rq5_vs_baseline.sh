@@ -25,7 +25,7 @@ _gflops() {
 }
 
 _bench() {
-  local label="$1" cmd="$2" size="$3"
+  local label="$1" cmd="$2" size="$3" niter="$4"
   local hfcsv=/tmp/mlir_rq5/hf_${size}_${label}.csv
 
   "$HYPERFINE" \
@@ -34,24 +34,37 @@ _bench() {
     "$cmd" \
     2>/dev/null
 
-  MEAN=$(awk   -F',' 'NR==2{print $2}' "$hfcsv")
-  STDDEV=$(awk -F',' 'NR==2{print $3}' "$hfcsv")
+  MEAN=$(awk   -F',' -v n="$niter" 'NR==2{printf "%.10f", $2/n}' "$hfcsv")
+  STDDEV=$(awk -F',' -v n="$niter" 'NR==2{printf "%.10f", $3/n}' "$hfcsv")
   GF=$(_gflops "$size" "$MEAN")
   echo "$size,$label,$MEAN,$STDDEV,$GF" | tee -a "$OUT"
 }
 
 for N in "${SIZES[@]}"; do
-  # ── MLIR best path (affine + tile T=16) ──────────────────────────────────
-  KERNEL=/tmp/mlir_rq5/matmul_${N}.mlir
-  LOWERED=/tmp/mlir_rq5/lowered_${N}.mlir
-  sed "s/SIZE/$N/g" kernels/matmul/bench.mlir.tpl > "$KERNEL"
-  bash pipelines/to_affine_tiled.sh "$KERNEL" 16 > "$LOWERED"
-  _bench "mlir_affine_t16" "bash scripts/_run_mlir.sh $LOWERED" "$N"
+  case "$N" in
+    128)  NITER=100 ;;
+    256)  NITER=20  ;;
+    512)  NITER=5   ;;
+    1024) NITER=2   ;;
+    *)    NITER=5   ;;
+  esac
 
-  # ── MLIR vectorized (tile + NEON) ─────────────────────────────────────────
+  KERNEL=/tmp/mlir_rq5/matmul_${N}.mlir
+  sed -e "s/SIZE/$N/g" -e "s/NITER/$NITER/g" kernels/matmul/bench.mlir.tpl > "$KERNEL"
+
+  # ── MLIR best path (affine + tile T=16) ──────────────────────────────────
+  LOWERED=/tmp/mlir_rq5/lowered_${N}.mlir
+  BINARY=/tmp/mlir_rq5/bin_${N}
+  bash pipelines/to_affine_tiled.sh "$KERNEL" 16 > "$LOWERED"
+  bash scripts/_compile_native.sh "$LOWERED" "$BINARY"
+  _bench "mlir_affine_t16" "$BINARY" "$N" "$NITER"
+
+  # ── MLIR explicit vectorization (tile + affine-super-vectorize) ───────────
   LOWERED_V=/tmp/mlir_rq5/lowered_${N}_vec.mlir
-  if bash pipelines/to_vector.sh "$KERNEL" 16 > "$LOWERED_V" 2>/dev/null; then
-    _bench "mlir_vector_t16" "bash scripts/_run_mlir.sh $LOWERED_V" "$N"
+  BINARY_V=/tmp/mlir_rq5/bin_${N}_vec
+  if bash pipelines/to_vector.sh "$KERNEL" 16 > "$LOWERED_V" 2>/dev/null && \
+     bash scripts/_compile_native.sh "$LOWERED_V" "$BINARY_V" 2>/dev/null; then
+    _bench "mlir_vector_t16" "$BINARY_V" "$N" "$NITER"
   else
     echo "$N,mlir_vector_t16,N/A,N/A,N/A" | tee -a "$OUT"
   fi
@@ -59,7 +72,7 @@ for N in "${SIZES[@]}"; do
   # ── Apple Accelerate baseline ─────────────────────────────────────────────
   BLAS_BIN=baselines/blas_matmul_${N}
   if [[ -x "$BLAS_BIN" ]]; then
-    _bench "accelerate_blas" "./$BLAS_BIN" "$N"
+    _bench "accelerate_blas" "./$BLAS_BIN" "$N" 1
   else
     echo "$N,accelerate_blas,NOT_BUILT,N/A,N/A" | tee -a "$OUT"
   fi
