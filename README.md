@@ -271,6 +271,7 @@ always produces a complete roofline with IREE points.
 | `make rq-iree` | IREE benchmark (wall-clock, real models) |
 | `make roofline` | Text table + PDF/PNG plot |
 | `make llvm-mca` | Static IPC analysis |
+| `make all-source` | Same as `all` but forces `MLIR_SOURCE_BUILD=1` (uses local `llvm-project/build`) |
 | `make clean` | Remove `/tmp/mlir_rq*` artifacts (results/ is kept) |
 
 ---
@@ -286,9 +287,11 @@ always produces a complete roofline with IREE points.
 | torch | 2.12.0 | `.venv/` |
 | hyperfine | 1.20.0 | Homebrew |
 
-Switch to source-built MLIR:
+Switch to source-built MLIR (local `llvm-project/build`):
 ```bash
-MLIR_SOURCE_BUILD=1 bash scripts/rq5_vs_baseline.sh
+MLIR_SOURCE_BUILD=1 bash scripts/rq5_vs_baseline.sh  # single script
+MLIR_SOURCE_BUILD=1 make rq1                          # single make target
+make all-source                                       # all experiments
 ```
 
 ---
