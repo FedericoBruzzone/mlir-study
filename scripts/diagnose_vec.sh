@@ -188,6 +188,7 @@ PATH C — vec_interchange (to_vector_interchange.sh)
     --canonicalize adds in_bounds only for A (scalar broadcast, trivially safe).
     B and C bounds depend on outer tile variables → canonicalize cannot prove them.
     Result: masked loads (tbz/tbnz + ld1.s per element) survive → same cost as Path B.
+    Upstream issue: https://discourse.llvm.org/t/mlir-affine-affine-super-vectorize-does-not-set-in-bounds-on-transfer-ops-for-statically-divisible-shapes/90785
 
 WHY LLVM IS BETTER:
   LLVM's TargetTransformInfo cost model knows that a gather (stride-N load)
