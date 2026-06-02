@@ -41,9 +41,14 @@ if (1024, "accelerate_blas") in rq5:
 
 for N in [128, 256, 512, 1024]:
     ai = matmul_ai(N)
-    if (N, "mlir_affine_t16")  in rq5: DATA.append((f"MLIR tiled T=16\nN={N}",        ai, rq5[(N,"mlir_affine_t16")],  "o", "#2196F3"))
-    if (N, "mlir_vector_t16")  in rq5: DATA.append((f"MLIR explicit vec T=16\nN={N}", ai, rq5[(N,"mlir_vector_t16")],  "^", "#4CAF50"))
-    if (N, "accelerate_blas")  in rq5: DATA.append((f"Accelerate\nN={N}",             ai, rq5[(N,"accelerate_blas")],  "D", "#F44336"))
+    if (N, "mlir_affine_t16") in rq5:
+        DATA.append((f"MLIR tiled T=16\nN={N}", ai, rq5[(N, "mlir_affine_t16")], "o", "#2196F3"))
+    if (N, "mlir_vector_t16") in rq5:
+        DATA.append((f"MLIR vec (gather)\nN={N}", ai, rq5[(N, "mlir_vector_t16")], "^", "#4CAF50"))
+    if (N, "mlir_vector_interchange_t16") in rq5:
+        DATA.append((f"MLIR vec+interchange\nN={N}", ai, rq5[(N, "mlir_vector_interchange_t16")], "v", "#009688"))
+    if (N, "accelerate_blas") in rq5:
+        DATA.append((f"Accelerate\nN={N}", ai, rq5[(N, "accelerate_blas")], "D", "#F44336"))
 
 # Load IREE clean if available
 # Arithmetic intensities (FLOPs / bytes_accessed):

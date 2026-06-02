@@ -69,6 +69,16 @@ for N in "${SIZES[@]}"; do
     echo "$N,mlir_vector_t16,N/A,N/A,N/A" | tee -a "$OUT"
   fi
 
+  # ── MLIR interchange + vectorization (fixes loop order, masked loads remain) ─
+  LOWERED_VI=/tmp/mlir_rq5/lowered_${N}_vec_interchange.mlir
+  BINARY_VI=/tmp/mlir_rq5/bin_${N}_vec_interchange
+  if bash pipelines/to_vector_interchange.sh "$KERNEL" 16 > "$LOWERED_VI" 2>/dev/null && \
+     bash scripts/_compile_native.sh "$LOWERED_VI" "$BINARY_VI" 2>/dev/null; then
+    _bench "mlir_vector_interchange_t16" "$BINARY_VI" "$N" "$NITER"
+  else
+    echo "$N,mlir_vector_interchange_t16,N/A,N/A,N/A" | tee -a "$OUT"
+  fi
+
   # ── Apple Accelerate baseline ─────────────────────────────────────────────
   BLAS_BIN=baselines/blas_matmul_${N}
   if [[ -x "$BLAS_BIN" ]]; then

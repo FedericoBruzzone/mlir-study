@@ -1,6 +1,6 @@
 kernel,variant,time_mean_s,time_stddev_s
-conv2d,affine,0.0705795327,0.0004477924
-conv2d,affine_tiled_16,0.0412169750,0.0001941694
-batch_matmul,affine,0.0155215201,0.0001709569
-batch_matmul,affine_tiled_16,0.0017003266,0.0000381851
-softmax,scf,0.0008225272,0.0000520639
+conv2d,affine,0.0743974809,0.0059209018
+conv2d,affine_tiled_16,0.0415058765,0.0004044436
+batch_matmul,affine,0.0161573226,0.0006640842
+batch_matmul,affine_tiled_16,0.0016265661,0.0000253462
+softmax,scf,0.0007799665,0.0000418875
